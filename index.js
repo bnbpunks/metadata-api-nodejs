@@ -1,55 +1,93 @@
-const express = require('express')
-const path = require('path')
-const moment = require('moment')
-const { HOST } = require('./src/constants')
-const db = require('./src/database')
+const ethers = require("ethers");
+const { lootABI } = require("./abi.js");
+const lootAddress = "0xFF9C1b15B16263C61d017ee9F65C50e4AE0113D7";
+const moreLootAddress = "0x1dfe7ca09e99d10835bf73044a23b73fc20623df";
 
-const PORT = process.env.PORT || 5000
+class Loot {
 
-const app = express()
-  .set('port', PORT)
-  .set('views', path.join(__dirname, 'views'))
-  .set('view engine', 'ejs')
+  constructor(rpcProvider) {
+    const rpc = new ethers.providers.JsonRpcProvider(rpcProvider);
+    const loot = new ethers.Contract(lootAddress, lootABI, rpc);
+    const moreLoot = new ethers.Contract(moreLootAddress, lootABI, rpc);
 
-// Static public files
-app.use(express.static(path.join(__dirname, 'public')))
-
-app.get('/', function(req, res) {
-  res.send('Get ready for OpenSea!');
-})
-
-app.get('/api/token/:token_id', function(req, res) {
-  const tokenId = parseInt(req.params.token_id).toString()
-  const person = db[tokenId]
-  const bdayParts = person.birthday.split(' ')
-  const day = parseInt(bdayParts[1])
-  const month = parseInt(bdayParts[0])
-  const data = {
-    'name': person.name,
-    'attributes': {
-      'birthday': person.birthday,
-      'birth month': monthName(month),
-      'zodiac sign': zodiac(day, month),
-      // 'age': moment().diff(person.birthday, 'years')
-    },
-    'image': `${HOST}/images/${tokenId}.png`
+    this.loot = loot;
+    this.moreLoot = moreLoot;
   }
-  res.send(data)
-})
 
-app.listen(app.get('port'), function() {
-  console.log('Node app is running on port', app.get('port'));
-})
+  async bag(lootId) {
+    if (lootId > 0) {
+      let loot = (lootId < 8001) ? this.loot : this.moreLoot;
+      let type = (lootId < 8001) ? "Loot": "More Loot";
 
-// returns the zodiac sign according to day and month ( https://coursesweb.net/javascript/zodiac-signs_cs )
-function zodiac(day, month) {
-  var zodiac =['', 'Capricorn', 'Aquarius', 'Pisces', 'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo', 'Libra', 'Scorpio', 'Sagittarius', 'Capricorn'];
-  var last_day =['', 19, 18, 20, 20, 21, 21, 22, 22, 21, 22, 21, 20, 19];
-  return (day > last_day[month]) ? zodiac[month*1 + 1] : zodiac[month];
+      const [chest, foot, hand, head, neck, ring, waist, weapon] =
+        await Promise.all([
+          loot.getChest(lootId),
+          loot.getFoot(lootId),
+          loot.getHand(lootId),
+          loot.getHead(lootId),
+          loot.getNeck(lootId),
+          loot.getRing(lootId),
+          loot.getWaist(lootId),
+          loot.getWeapon(lootId),
+        ]);
+
+      let bag = {
+        id: lootId,
+        type: type,
+        chest: chest,
+        foot: foot,
+        hand: hand,
+        head: head,
+        neck: neck,
+        ring: ring,
+        waist: waist,
+        weapon: weapon,
+      }
+
+      return bag;
+    }
+
+    return {};
+  }
+
+  async numberOfOGBagsInWallet(address) {
+    let balance = await this.loot.balanceOf(address);
+
+    return balance.toNumber();
+  }
+
+  async numberOfMoreBagsInWallet(address) {
+    let balance = await this.moreLoot.balanceOf(address);
+
+    return balance.toNumber();
+  }
+
+  async numberOfBagsInWallet(address, excludingMoreLoot=true) {
+    return await this.numberOfOGBagsInWallet(address) + (excludingMoreLoot ? 0 : await this.numberOfMoreBagsInWallet(address));
+  }
+
+  async lootIdsInWallet(address, excludingMoreLoot=true) {
+    const numberOfBags = await this.numberOfBagsInWallet(address);
+    let lootIds = [];
+    let tasks = [];
+    for (var i = 0;i < numberOfBags; i++) {
+      tasks.push(this.loot.tokenOfOwnerByIndex(address, i));
+    }
+
+    if (!excludingMoreLoot) {
+      const numberOfMoreBags = await this.numberOfMoreBagsInWallet(address);
+      for (var i = 0;i < numberOfMoreBags; i++) {
+        tasks.push(this.moreLoot.tokenOfOwnerByIndex(address, i));
+      }
+    }
+
+    const data = await Promise.all(tasks);
+    for (const lootIdBN of data) {
+      lootIds.push(lootIdBN.toString());
+    }
+
+    return lootIds;
+  }
 }
 
-function monthName(month) {
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"
-  ]
-  return monthNames[month - 1]
-}
+module.exports = Loot;
