@@ -1,6 +1,6 @@
 const ethers = require("ethers");
 const { lootABI } = require("./abi.js");
-const lootAddress = "0xFF9C1b15B16263C61d017ee9F65C50e4AE0113D7";
+const lootAddress = "0xda87c744715cb764545c2efc47b2bc48c8dd63ae";
 const moreLootAddress = "0x1dfe7ca09e99d10835bf73044a23b73fc20623df";
 
 class Loot {
